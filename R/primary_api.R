@@ -31,7 +31,7 @@ NULL
 trading_login <- function(username, password, env="reMarkets") {
   if (missing(username) | missing(password)) stop("Username and Password are needed.")
   if (missing(env)) stop("Environment is needed.")
-  if (!env %in% c("reMarkets", "production")) stop("Environrment is invalid.")
+  if (!env %in% c("reMarkets", "production")) stop("Environment is invalid.")
 
 
   # Environment
