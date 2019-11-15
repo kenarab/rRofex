@@ -33,10 +33,12 @@ trading_login <- function(username, password, env="reMarkets") {
   if (missing(env)) stop("Environment is needed.")
   if (!env %in% c("reMarkets", "production")) stop("Environment is invalid.")
 
+  # Setting Global environment to store credetials
+  .rRofexGlobalEnv <<- new.env(parent = emptyenv())
 
   # Environment
-  .base_url <<- if (env == 'reMarkets') {
-    "http://pbcp-remarket.cloud.primary.com.ar"
+  .base_url <- if (env == 'reMarkets') {
+    "http://api.remarkets.primary.com.ar"
     } else if (env == 'production') {
       "https://api.primary.com.ar"
     }
@@ -51,10 +53,17 @@ trading_login <- function(username, password, env="reMarkets") {
 
   head <- headers(token)
 
-  active_token <- head$`x-auth-token`
+  x_auth_token <- head$`x-auth-token`
 
-  if (!is.null(active_token)) {
-    .x_auth_token <<- active_token
+  if (!is.null(x_auth_token)) {
+    # Writting into environment
+    .rRofexGlobalEnv$base_url <<- .base_url
+    .rRofexGlobalEnv$env <<- env
+    .rRofexGlobalEnv$username <<- username
+    .rRofexGlobalEnv$password <<- password
+    .rRofexGlobalEnv$x_auth_token <<- x_auth_token
+    .rRofexGlobalEnv$login_date_time <<- Sys.time()
+
     message("Connected Successfully")
   } else {
     warning("Something went wrong... =/")
@@ -80,27 +89,27 @@ trading_login <- function(username, password, env="reMarkets") {
 #'@examples
 #'\dontrun{trading_instruments()}
 trading_instruments <- function(request, sec_detailed = FALSE) {
-  if (!exists(".x_auth_token")) stop("You should first log in using trading_login()")
+  if (!exists(x = ".rRofexGlobalEnv", mode = "environment") || !exists("x_auth_token", envir = .rRofexGlobalEnv)) stop("You should first log in using trading_login()")
   if (!request %in% c("segments", "securities")) stop("Invalid 'request' parameter.")
 
   # Segments
   query <- if (request == 'segments') {
-    GET(url = paste0(.base_url, "/rest/segment/all"),
-        add_headers(.headers = c("X-Auth-Token" = .x_auth_token))
+    GET(url = paste0(.rRofexGlobalEnv$base_url, "/rest/segment/all"),
+        add_headers(.headers = c("X-Auth-Token" = .rRofexGlobalEnv$x_auth_token))
         )
   } else if (request == 'securities' & sec_detailed == F) {
-    GET(url = paste0(.base_url, "/rest/instruments/all"),
-        add_headers(.headers = c("X-Auth-Token" = .x_auth_token))
+    GET(url = paste0(.rRofexGlobalEnv$base_url, "/rest/instruments/all"),
+        add_headers(.headers = c("X-Auth-Token" = .rRofexGlobalEnv$x_auth_token))
     )
   } else if (request == 'securities' & sec_detailed == T) {
-    GET(url = paste0(.base_url, "/rest/instruments/details"),
-        add_headers(.headers = c("X-Auth-Token" = .x_auth_token))
+    GET(url = paste0(.rRofexGlobalEnv$base_url, "/rest/instruments/details"),
+        add_headers(.headers = c("X-Auth-Token" = .rRofexGlobalEnv$x_auth_token))
     )
   }
 
-  result <- fromJSON(content(x = query, as = "text"))
+  if (query$status_code != 200 | content(query)$status != "OK") stop("The query returned an unexpected result.")
 
-  if (result$status != 'OK') stop("The query returned an unexpected result.")
+  result <- fromJSON(content(x = query, as = "text"))
 
   # Return
   data <- if (request == 'segments') {
@@ -142,14 +151,14 @@ trading_instruments <- function(request, sec_detailed = FALSE) {
 #'@examples
 #'\dontrun{trading_md(symbol='I.RFX20')}
 trading_md <- function(market_id='ROFX', symbol, entries=c('BI', 'OF', 'LA', 'OP', 'CL', 'SE', 'OI'), depth=1L) {
-  if (!exists(".x_auth_token")) stop("You should first log in using trading_login()")
+  if (!exists(x = ".rRofexGlobalEnv", mode = "environment") || !exists("x_auth_token", envir = .rRofexGlobalEnv)) stop("You should first log in using trading_login()")
   if (!market_id %in% c("ROFX")) stop("Invalid 'market_id' parameter.")
   if (missing(symbol)) stop("You should pick a 'symbol' to move forward.")
 
   if (!all(sapply(entries, function(x) x %in% c('BI', 'OF', 'LA', 'OP', 'CL', 'SE', 'OI')))) stop("Invalid 'entries' parameter")
 
   # Base URL
-  url <- paste0(.base_url, "/rest/marketdata/get")
+  url <- paste0(.rRofexGlobalEnv$base_url, "/rest/marketdata/get")
 
   # Query
   query <- GET(url = url,
@@ -158,9 +167,9 @@ trading_md <- function(market_id='ROFX', symbol, entries=c('BI', 'OF', 'LA', 'OP
                  symbol=symbol,
                  entries=paste0(entries, collapse = ","),
                  depth=depth),
-               add_headers(.headers = c("X-Auth-Token" = .x_auth_token)))
+               add_headers(.headers = c("X-Auth-Token" = .rRofexGlobalEnv$x_auth_token)))
 
-  if (content(query)$status != "OK") stop("The query returned an unexpected result.")
+  if (query$status_code != 200 | content(query)$status != "OK") stop("The query returned an unexpected result.")
 
   result <- enframe(unlist(content(x = query)$marketData))
 
@@ -193,7 +202,7 @@ trading_md <- function(market_id='ROFX', symbol, entries=c('BI', 'OF', 'LA', 'OP
 #'@examples
 #'\dontrun{trading_mdh(symbol='I.RFX20')}
 trading_mdh <- function(market_id='ROFX', symbol, date, date_from, date_to) {
-  if (!exists(".x_auth_token")) stop("You should first log in using trading_login()")
+  if (!exists(x = ".rRofexGlobalEnv", mode = "environment") || !exists("x_auth_token", envir = .rRofexGlobalEnv)) stop("You should first log in using trading_login()")
   if (!market_id %in% c("ROFX")) stop("Invalid 'market_id' parameter")
   if (missing(symbol)) stop("You should pick a 'symbol' to move forward.")
   if (missing(date) & (missing(date_from) | missing(date_to))) stop("Invalid date parameters")
@@ -206,7 +215,7 @@ trading_mdh <- function(market_id='ROFX', symbol, date, date_from, date_to) {
   }
 
   # Base URL
-  url <- paste0(.base_url, "/rest/data/getTrades")
+  url <- paste0(.rRofexGlobalEnv$base_url, "/rest/data/getTrades")
 
   # Query
   query <- if (!missing(date)) {
@@ -216,7 +225,7 @@ trading_mdh <- function(market_id='ROFX', symbol, date, date_from, date_to) {
           symbol=symbol,
           date=date
         ),
-        add_headers(.headers = c("X-Auth-Token" = .x_auth_token)))
+        add_headers(.headers = c("X-Auth-Token" = .rRofexGlobalEnv$x_auth_token)))
   } else if (!missing(date_from) & !missing(date_to)) {
     GET(url = url,
         query = list(
@@ -225,10 +234,10 @@ trading_mdh <- function(market_id='ROFX', symbol, date, date_from, date_to) {
           dateFrom=date_from,
           dateTo=date_to
         ),
-        add_headers(.headers = c("X-Auth-Token" = .x_auth_token)))
+        add_headers(.headers = c("X-Auth-Token" = .rRofexGlobalEnv$x_auth_token)))
   }
 
-  if (content(query)$status != "OK") stop("The query returned an unexpected result.")
+  if (query$status_code != 200 | content(query)$status != "OK") stop("The query returned an unexpected result.")
   if (!length(content(query)$trades)) stop("There is no data for the product / period selected.")
 
   result <- fromJSON(content(x = query, as = "text"))
@@ -266,7 +275,7 @@ trading_mdh <- function(market_id='ROFX', symbol, date, date_from, date_to) {
 #'@param account String. Account Number / Account ID.
 #'@return List with outputs like state of the order.
 trading_new_order <- function(symbol, side, quantity, price, order_type='Limit', time_in_force='Day', iceberg=FALSE, expire_date=NULL, display_quantity=NULL, account) {
-  if (!exists(".x_auth_token")) stop("You should first log in using trading_login()")
+  if (!exists(x = ".rRofexGlobalEnv", mode = "environment") || !exists("x_auth_token", envir = .rRofexGlobalEnv)) stop("You should first log in using trading_login()")
 
   market_id <- "ROFX"
   if (!market_id %in% c("ROFX")) stop("Invalid 'market_id' parameter")
@@ -298,7 +307,7 @@ trading_new_order <- function(symbol, side, quantity, price, order_type='Limit',
   if (missing(account)) stop("You should pick a 'account' to move forward.")
 
   # Query
-  query <- GET(url = paste0(.base_url, "/rest/order/newSingleOrder"),
+  query <- GET(url = paste0(.rRofexGlobalEnv$base_url, "/rest/order/newSingleOrder"),
                query = list(
                  marketId    = market_id,
                  symbol      = symbol,
@@ -312,20 +321,15 @@ trading_new_order <- function(symbol, side, quantity, price, order_type='Limit',
                  displayQty  = if (iceberg == F) {NULL} else {display_quantity},
                  account     = account
                ),
-               add_headers(.headers = c("X-Auth-Token" = .x_auth_token)))
+               add_headers(.headers = c("X-Auth-Token" = .rRofexGlobalEnv$x_auth_token)))
 
-  if (query$status_code != 200) stop("The query returned an unexpected result.")
+  if (query$status_code != 200 | content(query)$status != "OK") stop("The query returned an unexpected result.")
 
   # Result
   result <- if (content(query)$status == "OK") {
-    .order_lookup <- trading_lookup(lookup_type = "COID",
-                                    order_id = content(query)$order$clientId,
-                                    content(query)$order$proprietary)
-    list(
-      ClientId   = content(query)$order$clientId,
-      State      = .order_lookup$order.status,
-      text       = .order_lookup$order.text
-      )
+    trading_lookup(lookup_type = "COID",
+                   order_id = content(query)$order$clientId,
+                   proprietary =content(query)$order$proprietary)
   } else {
     content(query)
   }
@@ -342,18 +346,18 @@ trading_new_order <- function(symbol, side, quantity, price, order_type='Limit',
 #'
 #'@return List with outputs like state of the order.
 trading_cancel_order <- function(order_id, proprietary) {
-  if (!exists(".x_auth_token")) stop("You should first log in using trading_login()")
+  if (!exists(x = ".rRofexGlobalEnv", mode = "environment") || !exists("x_auth_token", envir = .rRofexGlobalEnv)) stop("You should first log in using trading_login()")
 
   if (missing(order_id)) stop("You should pick a 'order_id' to move forward.")
   if (missing(proprietary)) stop("You should pick a 'proprietary' to move forward.")
 
   # Query
-  query <- GET(url = paste0(.base_url, "/rest/order/cancelById"),
+  query <- GET(url = paste0(.rRofexGlobalEnv$base_url, "/rest/order/cancelById"),
                query = list(
                  clOrdId     = order_id,
                  proprietary = proprietary
                ),
-               add_headers(.headers = c("X-Auth-Token" = .x_auth_token)))
+               add_headers(.headers = c("X-Auth-Token" = .rRofexGlobalEnv$x_auth_token)))
 
   # Results
   if (query$status_code != 200 | content(query)$status != "OK") stop("The query returned an unexpected result.")
@@ -380,7 +384,7 @@ trading_cancel_order <- function(order_id, proprietary) {
 #'
 #'@return A data frame.
 trading_lookup <- function(lookup_type, order_id, proprietary) {
-  if (!exists(".x_auth_token")) stop("You should first log in using trading_login()")
+  if (!exists(x = ".rRofexGlobalEnv", mode = "environment") || !exists("x_auth_token", envir = .rRofexGlobalEnv)) stop("You should first log in using trading_login()")
 
   if (missing(lookup_type)) stop("You should pick a 'lookup_type' to move forward.")
   if (!lookup_type %in% c("COID", "OID")) stop("Invalid 'lookup_type' parameter")
@@ -391,21 +395,31 @@ trading_lookup <- function(lookup_type, order_id, proprietary) {
 
   # Query
   query <- if (lookup_type == "COID") {
-    GET(url = paste0(.base_url, "/rest/order/id"),
+    GET(url = paste0(.rRofexGlobalEnv$base_url, "/rest/order/id"),
         query = list(
           clOrdId     = order_id,
           proprietary = proprietary
         ),
-        add_headers(.headers = c("X-Auth-Token" = .x_auth_token)))
+        add_headers(.headers = c("X-Auth-Token" = .rRofexGlobalEnv$x_auth_token)))
   } else if (lookup_type == "OID") {
-    # paste0(.base_url, "/rest/order/cancelById")
+    # paste0(.rRofexGlobalEnv$base_url, "/rest/order/cancelById")
   }
 
   # Results
   if (query$status_code != 200 | content(query)$status != "OK") stop("The query returned an unexpected result.")
 
   result <- if (query$status_code == 200 & content(query)$status == "OK") {
-    as.data.frame(content(x = query), stringsAsFactors = F)
+    list(
+      ClientId   = content(query)$order$clOrdId,
+      State      = content(query)$order$status,
+      text       = content(query)$order$text
+    )
+  } else {
+    list(
+      ClientId   = "-",
+      State      = "-",
+      text       = "-"
+    )
   }
 
   return(result)
@@ -419,16 +433,16 @@ trading_lookup <- function(lookup_type, order_id, proprietary) {
 #'
 #'@return A data frame.
 trading_orders <- function(account) {
-  if (!exists(".x_auth_token")) stop("You should first log in using trading_login()")
+  if (!exists(x = ".rRofexGlobalEnv", mode = "environment") || !exists("x_auth_token", envir = .rRofexGlobalEnv)) stop("You should first log in using trading_login()")
 
   if (missing(account)) stop("You should pick an 'account' to move forward.")
 
   # Query
-  query <- GET(url = paste0(.base_url, "/rest/order/all"),
+  query <- GET(url = paste0(.rRofexGlobalEnv$base_url, "/rest/order/all"),
                query = list(
                  accountId = account
                ),
-               add_headers(.headers = c("X-Auth-Token" = .x_auth_token)))
+               add_headers(.headers = c("X-Auth-Token" = .rRofexGlobalEnv$x_auth_token)))
 
   # Results
   if (query$status_code != 200 | content(query)$status != "OK") stop("The query returned an unexpected result.")
